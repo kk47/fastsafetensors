@@ -619,6 +619,8 @@ class ParallelLoader(PipelineParallel):
         bbuf_size_kb (int): Bounce buffer size for file copies in KB.
         max_threads (int): Maximum number of threads for memory copies.
         nogds (bool): If True, turn off GDS and fallback to pread with bounce buffer.
+        use_fgds (bool): If True, use FGDS (alternative GPU Direct Storage) instead
+                        of cuFile GDS. When FGDS is unavailable, falls back to nogds.
         use_shm (bool): If True, use shared memory for file loading.
         set_numa (bool): If True, set NUMA node for optimal memory allocation.
         debug_log (bool): Enable debug logs.
@@ -658,6 +660,7 @@ class ParallelLoader(PipelineParallel):
         bbuf_size_kb: int = 16 * 1024,
         max_threads: int = 16,
         nogds: bool = False,
+        use_fgds: bool = False,
         set_numa: bool = True,
         debug_log: bool = False,
         framework="pytorch",
@@ -680,6 +683,7 @@ class ParallelLoader(PipelineParallel):
             bbuf_size_kb (int): Bounce buffer size for file copies in KB.
             max_threads (int): Maximum number of threads for memory copies.
             nogds (bool): If True, turn off GDS and fallback to pread with bounce buffer.
+            use_fgds (bool): If True, use FGDS instead of cuFile GDS.
             set_numa (bool): If True, set NUMA node for optimal memory allocation.
             debug_log (bool): Enable debug logs.
             framework (str): Framework to use for tensor operations.
@@ -695,6 +699,7 @@ class ParallelLoader(PipelineParallel):
             bbuf_size_kb=bbuf_size_kb,
             max_threads=max_threads,
             nogds=nogds,
+            use_fgds=use_fgds,
             disable_cache=True,
             set_numa=set_numa,
             debug_log=debug_log,

@@ -17,12 +17,7 @@ from typing import (
 )
 
 from . import cpp as fstcpp
-from .common import (
-    SafeTensorsMetadata,
-    TensorFrame,
-    get_device_numa_node,
-    init_logger,
-)
+from .common import SafeTensorsMetadata, TensorFrame, get_device_numa_node, init_logger
 from .copier import (
     CopierConstructFunc,
     CopierInterface,
@@ -89,10 +84,7 @@ class BaseSafeTensorsFileLoader:
         self._chunk_plan: Dict[str, Tuple[Set[str], List[Tuple[int, int]]]] = {}
         self.init_numa(set_numa)
         self.copier_constructor: CopierConstructFunc = create_copier_constructor(
-            copier_type=copier_type,
-            device=device,
-            framework=self.framework,
-            **kwargs,
+            copier_type=copier_type, device=device, framework=self.framework, **kwargs
         )
         # The class behind copier_constructor, for policy the planner needs
         # before any copier exists (chunk_transient_multiplier). Read off the
@@ -240,10 +232,7 @@ class BaseSafeTensorsFileLoader:
         else:
             keep_tensor = self._tensor_filter
         return FilesBufferOnDevice(
-            factories,
-            pg=self.pg,
-            framework=self.framework,
-            keep_tensor=keep_tensor,
+            factories, pg=self.pg, framework=self.framework, keep_tensor=keep_tensor
         )
 
 
@@ -272,10 +261,15 @@ class SafeTensorsFileLoader(BaseSafeTensorsFileLoader):
     def process_extension_config(
         cls, ext_config: Mapping[str, Any], **kwargs: Any
     ) -> Dict[str, Any]:
-        """Map ``copier_type`` to ``nogds`` flag; pass rest through."""
+        """Map ``copier_type`` to ``nogds``/``use_fgds`` flags; pass rest through."""
         out = dict(ext_config)
         copier_type = out.pop("copier_type", "gds")
-        out["nogds"] = copier_type != "gds"
+        if copier_type == "fgds":
+            out["nogds"] = False
+            out["use_fgds"] = True
+        else:
+            out["nogds"] = copier_type != "gds"
+            out.setdefault("use_fgds", False)
         return out
 
     def __init__(
@@ -285,6 +279,7 @@ class SafeTensorsFileLoader(BaseSafeTensorsFileLoader):
         bbuf_size_kb: int = 16 * 1024,
         max_threads: int = 16,
         nogds: bool = False,
+        use_fgds: bool = False,
         set_numa: bool = True,
         disable_cache: bool = True,
         debug_log: bool = False,
@@ -296,21 +291,22 @@ class SafeTensorsFileLoader(BaseSafeTensorsFileLoader):
         self.device = self.framework.get_device(device, self.pg)
 
         fstcpp.set_debug_log(debug_log)
-
-        if not nogds:
-            if platform.system() == "Windows":
-                copier_type = "dstorage"
+        if nogds:
+            if self.device.type != DeviceType.CPU and is_unified_memory_system(
+                self.framework
+            ):
+                # When GDS is unavailable, prefer the unified copier on systems
+                # with shared CPU/GPU memory (e.g., DGX Spark) over the
+                # bounce-buffer nogds path.
+                copier_type = "unified"
             else:
-                copier_type = "gds"
-        elif self.device.type != DeviceType.CPU and is_unified_memory_system(
-            self.framework
-        ):
-            # When GDS is unavailable, prefer the unified copier on systems
-            # with shared CPU/GPU memory (e.g., DGX Spark) over the
-            # bounce-buffer nogds path.
-            copier_type = "unified"
+                copier_type = "nogds"
+        elif use_fgds:
+            copier_type = "fgds"
+        elif platform.system() == "Windows":
+            copier_type = "dstorage"
         else:
-            copier_type = "nogds"
+            copier_type = "gds"
         super().__init__(
             pg,
             self.device,
@@ -345,11 +341,17 @@ class fastsafe_open:
         pg: Optional[Any] = None,
         device: str = "cpu",
         nogds: bool = False,
+        use_fgds: bool = False,
         debug_log: bool = False,
         max_copy_block_size: int = 16 * 1024 * 1024 * 1024,
     ):
         self.loader = SafeTensorsFileLoader(
-            pg, device, nogds=nogds, debug_log=debug_log, framework=framework
+            pg,
+            device,
+            nogds=nogds,
+            use_fgds=use_fgds,
+            debug_log=debug_log,
+            framework=framework,
         )
         file_dict: Dict[int, List[str]] = {}
         if isinstance(filenames, str):

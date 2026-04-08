@@ -12,6 +12,10 @@ def MyExtension(name, sources, mod_name, *args, **kwargs):
 
     pybind11_path = os.path.dirname(pybind11.__file__)
 
+    # Copy sources so per-platform tweaks (e.g. adding dstorage_reader.cpp)
+    # don't mutate the caller's list.
+    sources = list(sources)
+
     kwargs["define_macros"] = [("__MOD_NAME__", mod_name)]
     kwargs["libraries"] = ["stdc++"]
     kwargs["include_dirs"] = kwargs.get("include_dirs", []) + [
@@ -20,9 +24,12 @@ def MyExtension(name, sources, mod_name, *args, **kwargs):
     kwargs["language"] = "c++"
     kwargs["extra_compile_args"] = ["-fvisibility=hidden", "-std=c++17"]
 
-    # Windows-specific configuration for DirectStorage + D3D12/CUDA interop
+    # Windows-specific configuration for DirectStorage + D3D12/CUDA interop.
+    # Only the main `cpp` extension needs the dstorage source; fgds_ext (a
+    # stub on Windows) must not pull it in.
     if platform.system() == "Windows":
-        sources.append("fastsafetensors/cpp/dstorage_reader.cpp")
+        if mod_name == "cpp":
+            sources.append("fastsafetensors/cpp/dstorage_reader.cpp")
         kwargs["libraries"] = []
         # c++20 required for designated initializers at ext.hpp
         kwargs["extra_compile_args"] = ["/std:c++20"]
@@ -40,7 +47,7 @@ def MyExtension(name, sources, mod_name, *args, **kwargs):
     return Extension(name, sources, *args, **kwargs)
 
 
-package_data_patterns = ["*.hpp", "*.h", "cpp.pyi"]
+package_data_patterns = ["*.hpp", "*.h", "*.pyi"]
 
 setup(
     packages=[
@@ -57,6 +64,12 @@ setup(
             sources=["fastsafetensors/cpp/ext.cpp"],
             include_dirs=["fastsafetensors/cpp"],
             mod_name="cpp",
-        )
+        ),
+        MyExtension(
+            name=f"fastsafetensors.fgds_ext",
+            sources=["fastsafetensors/cpp/fgds_ext.cpp"],
+            include_dirs=["fastsafetensors/cpp"],
+            mod_name="fgds_ext",
+        ),
     ],
 )
